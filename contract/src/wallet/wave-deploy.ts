@@ -110,13 +110,17 @@ export const RECOVERY_SHARED_CIRCUITS = ['recover_submit', 'recover_finalise'];
 
 export const ARMS: readonly Arm[] = ['k256', 'jubjub', 'p256'];
 
-/** All 52 impure circuits: four shared and sixteen per credential arm. */
+/** Moonshot fork (2026-10-11): the unshielded withdrawal paid to a contract, JubJub arm only (account.compact). */
+export const TO_CONTRACT_CIRCUITS = ['withdraw_unshielded_to_contract_with_jubjub'];
+
+/** All 53 impure circuits: four shared, sixteen per credential arm, and the fork's one. */
 export const allCircuits = (): string[] => [
   ...SHARED_CIRCUITS,
   ...ARMS.flatMap(armCircuits),
   ...ARMS.flatMap(arm => [...grantTwins(arm), ...lifecycleCircuits(arm)]),
   ...RECOVERY_SHARED_CIRCUITS,
   ...ARMS.flatMap(recoveryCircuits),
+  ...TO_CONTRACT_CIRCUITS,
 ];
 
 /**
@@ -232,6 +236,8 @@ export function planWaves(
     ...others.flatMap(armCircuits),
     ...grantTwins(firstArm),
     ...lifecycleCircuits(firstArm),
+    // Moonshot fork: the contract-paying withdrawal, with the first arm's own circuits
+    ...TO_CONTRACT_CIRCUITS,
     ...others.flatMap(arm => [...grantTwins(arm), ...lifecycleCircuits(arm)]),
     // Recovery last: the gate and the first arm's session and cancel, then
     // the other arm's. An account is functional without them; they are the
