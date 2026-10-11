@@ -589,6 +589,29 @@ export pure circuit challenge_withdraw_unshielded_with_jubjub(
   );
 }
 
+// Moonshot fork (2026-10-11): the unshielded twin of the shielded-to-contract
+// challenge below. The approver signs over the recipient contract, the colour
+// and the amount; the send is claimed by that contract's receiveUnshielded in
+// the same transaction (a contract-addressed send nobody claims is refused by
+// the ledger), so the account pays a contract in one transaction.
+export pure circuit challenge_withdraw_unshielded_to_contract_with_jubjub(
+  self_addr:   ContractAddress,
+  sig_r:       JubjubPoint,
+  pk:          JubjubPoint,
+  recipient:   ContractAddress,
+  color:       Bytes<32>,
+  amount:      Uint<128>,
+  nonce_value: Uint<64>,
+  grind_nonce: Uint<64>,
+): Bytes<32> {
+  const dst = persistentHash<[Bytes<64>]>(
+    [pad(64, "midnight:account:auth:v1:withdraw_unshielded_to_contract")]
+  );
+  return persistentHash<[Bytes<32>, ContractAddress, JubjubPoint, JubjubPoint, ContractAddress, Bytes<32>, Uint<128>, Uint<64>, Uint<64>]>(
+    [dst, self_addr, sig_r, pk, recipient, color, amount, nonce_value, grind_nonce]
+  );
+}
+
 // The two witness-consuming circuits bind the held_coin return value into
 // the challenge (AUTH-10): the approver signs over the exact qualified
 // coin the spend will consume, so a proving environment cannot substitute
@@ -952,6 +975,18 @@ circuit do_withdraw_unshielded(
   sendUnshielded(c, a, right<ContractAddress, UserAddress>(disclose(recipient)));
 }
 
+// Moonshot fork (2026-10-11): the same debit, sent to a contract address.
+circuit do_withdraw_unshielded_to_contract(
+  color:     Bytes<32>,
+  amount:    Uint<128>,
+  recipient: ContractAddress,
+): [] {
+  const c = disclose(color);
+  const a = disclose(amount);
+  debit_unshielded(c, a);
+  sendUnshielded(c, a, left<ContractAddress, UserAddress>(disclose(recipient)));
+}
+
 // MIP-0012 §6.2: inbox append without a coin claim (change-coin backfill).
 circuit do_append_inbox(entry: Bytes<192>): [] {
   inbox.insert(inbox_count, disclose(entry));
@@ -1065,6 +1100,26 @@ export circuit withdraw_unshielded_with_jubjub(
   );
   require_authorised_with_jubjub(pk, use_counter, sig_r, sig_s, challenge);
   do_withdraw_unshielded(color, amount, recipient);
+}
+
+// Moonshot fork (2026-10-11): pays `amount` of `color` to a contract, for a
+// contract call in the same transaction that claims it (a launchpad order or
+// buy paid straight from the account, no coin ever under a device key).
+export circuit withdraw_unshielded_to_contract_with_jubjub(
+  recipient:   ContractAddress,
+  color:       Bytes<32>,
+  amount:      Uint<128>,
+  pk:          JubjubPoint,
+  use_counter: Uint<64>,
+  sig_r:       JubjubPoint,
+  sig_s:       Field,
+  grind_nonce: Uint<64>,
+): [] {
+  const challenge = challenge_withdraw_unshielded_to_contract_with_jubjub(
+    kernel.self(), sig_r, pk, recipient, color, amount, auth_nonce, grind_nonce
+  );
+  require_authorised_with_jubjub(pk, use_counter, sig_r, sig_s, challenge);
+  do_withdraw_unshielded_to_contract(color, amount, recipient);
 }
 
 export circuit withdraw_unshielded_with_k256(
