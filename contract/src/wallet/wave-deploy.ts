@@ -110,10 +110,15 @@ export const RECOVERY_SHARED_CIRCUITS = ['recover_submit', 'recover_finalise'];
 
 export const ARMS: readonly Arm[] = ['k256', 'jubjub', 'p256'];
 
-/** Moonshot fork (2026-10-11): the unshielded withdrawal paid to a contract, JubJub arm only (account.compact). */
-export const TO_CONTRACT_CIRCUITS = ['withdraw_unshielded_to_contract_with_jubjub'];
+/** Moonshot fork (2026-10-11, 2026-10-12): the unshielded withdrawals paid to a contract, one colour and two, JubJub
+ *  arm only (account.compact). Both lists below name them through this constant: the wave planner registers verifier
+ *  keys only for the ids it lists, so an id missing here deploys an account without that circuit. */
+export const TO_CONTRACT_CIRCUITS = [
+  'withdraw_unshielded_to_contract_with_jubjub',
+  'withdraw_two_unshielded_to_contract_with_jubjub',
+];
 
-/** All 53 impure circuits: four shared, sixteen per credential arm, and the fork's one. */
+/** All 54 impure circuits: four shared, sixteen per credential arm, and the fork's two. */
 export const allCircuits = (): string[] => [
   ...SHARED_CIRCUITS,
   ...ARMS.flatMap(armCircuits),
