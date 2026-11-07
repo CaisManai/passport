@@ -164,13 +164,23 @@ measured, it is live on both arms, and deriving the entry in-circuit does not
 prevent it. See erratum 8, which is the substantive open defect in this
 implementation and in MIP-0013 §3 and §6.
 
-Toolchain: **Compact 0.35.0** (language 0.27.0), **compact-runtime 0.20.0**,
-compact-js **3.0.0-rc.3**, midnight-js **5.0.0-rc.2**, ledger-v9
-**1.0.0-rc.5**, and wallet-sdk facade **5.0.0-rc.0**. All are published;
-the compiler/runtime are stable releases, while the SDKs remain RCs.
-The k256 arm requires `--feature-zkir-v3`, which now emits **ZKIR 3.1**.
-This targets a ledger-9 localnet; see the
-[compiler release notes](https://github.com/LFDT-Minokawa/compact/releases/tag/compactc-v0.35.0).
+Toolchain: **Compact 0.36.0** (language 0.28.0), **compact-runtime 0.21.0**,
+compact-js **3.0.0**, midnight-js **5.0.0**, ledger-v9 **1.0.0**, and
+wallet-sdk facade **5.0.0** (hd 4.0.0, shielded 4.0.0, unshielded 4.0.0,
+dust 5.0.0, abstractions 3.0.0): the final Ledger 9 line, moved to on
+2026-11-07 from the release candidates recorded in
+[TOOLCHAIN-0.35.md](TOOLCHAIN-0.35.md). Compact 0.36.0 emits **ZKIR 3.1** by
+default and no longer takes `--feature-zkir-v3`; its output carries a
+`compiler/contract-manifest.json` that midnight-js 5.0.0's zk-config
+providers verify every artifact against (`verify: 'require'` by default), so a
+compiled bundle travels whole or not at all. midnight-js 5.0.0 also retired
+the process-wide network id (`@midnight-ntwrk/midnight-js-network-id`, never
+published as 5.0.0): the providers carry `config: { networkId, ttlSeconds }`
+(`src/node/wallet.ts` `midnightConfig()`), transactions are handed to it as
+era-tagged `LedgerTransaction` handles, public reads answer era-tagged
+serialized states (`compactStateOf` in `src/wallet/contract.ts` is the one
+conversion), and private states live under their contract's address
+(`forContract`). The k256 arm's ZKIR 3 need is met by the default.
 The latest ledger-9 standalone images checked on 2026-10-01 are pinned in
 `infra/docker-compose.yml`: **node 2.1.0-rc.4**, **indexer
 4.4.0-rc.6-b5e6c809**, and **proof-server 9.0.0-rc.8**. The indexer is a
@@ -206,11 +216,11 @@ not new measurements on 0.35.0.
 ## Running
 
 Use Node.js >=22.12. The compile script pins
-`compact compile +0.35.0 --feature-zkir-v3` and builds the account, control,
+`compact compile +0.36.0` and builds the account, control,
 faucet and block-time probe, including their proving/verifier keys.
 
 ```sh
-compact update 0.35.0
+compact update 0.36.0
 npm ci
 npm run compile                      # compact compile → contracts/managed/
 (cd signer-rs && cargo build)        # the independent Rust signer

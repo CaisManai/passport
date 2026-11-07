@@ -12,7 +12,7 @@ import { build } from 'esbuild';
 import { CostModel } from '@midnightntwrk/ledger-v9';
 import { nodeZkConfigRegistry } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
 import { httpClientProvingProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
-import { createProofProviderFromHandlers } from '@midnight-ntwrk/midnight-js-types';
+import { createLedger9ProofProvider } from '@midnight-ntwrk/midnight-js-types';
 import { CustodyAccount } from '../wallet/account.js';
 import { generateEncKeyPair } from '../wallet/inbox.js';
 import { P256Device, p256Challenges } from '../wallet/signer-p256.js';
@@ -183,7 +183,7 @@ async function scenario() {
     evidence.samples.push({ label, keyLocation: args[1], startedAt, milliseconds: performance.now() - start, proofBytes: proof.length });
     save(); return proof;
   } };
-  ctx.providers.proofProvider = createProofProviderFromHandlers({ currentEra: tx => tx.prove(timed, CostModel.initialCostModel()) });
+  ctx.providers.proofProvider = createLedger9ProofProvider(timed, CostModel.initialCostModel());
   const submit = ctx.providers.midnightProvider.submitTx.bind(ctx.providers.midnightProvider);
   ctx.providers.midnightProvider.submitTx = (...args: unknown[]) => {
     submissions++;

@@ -30,6 +30,7 @@ import { deployContract, createUnprovenCallTx, submitTxAsync } from '@midnight-n
 import * as ledger from '@midnightntwrk/ledger-v9';
 
 import * as ProbeModule from '../../contracts/managed/probe-block-time/contract/index.js';
+import { compactStateOf } from '../wallet/contract.js';
 import { runScenario, step, sleep } from './runner.js';
 import { serialiseError, writeEvidence } from './evidence.js';
 import { setupWallet } from '../node/setup.js';
@@ -414,9 +415,8 @@ await runScenario('probe: kernel block-time unit and enforcement point', async (
   );
 
   const readPasses = async (): Promise<bigint> => {
-    const state = await providers.publicDataProvider.queryContractState(address);
-    if (!state) throw new Error(`no contract state at ${address}`);
-    return (ProbeModule as any).ledger(state.data).passes as bigint;
+    const read = await providers.publicDataProvider.queryContractState(address);
+    return (ProbeModule as any).ledger(compactStateOf(read, address).data).passes as bigint;
   };
 
   // Ledger parameters (ttl / time-to-dismiss knobs), for the record.
@@ -494,7 +494,9 @@ await runScenario('probe: kernel block-time unit and enforcement point', async (
           args: [arg],
           privateStateId: PRIVATE_STATE_ID,
         } as any;
-        providers.privateStateProvider.setContractAddress(address);
+        // midnight-js 5.0.0 scopes private state by contract itself (forContract); the rc-era setter is gone
+        const psp: any = providers.privateStateProvider;
+        if (typeof psp.setContractAddress === 'function') psp.setContractAddress(address);
         const unproven: any = await withClientSkew(c.clientSkewS, () => createUnprovenCallTx(providers, opts));
         txId = await submitTxAsync(providers, {
           unprovenTx: unproven.private.unprovenTx,

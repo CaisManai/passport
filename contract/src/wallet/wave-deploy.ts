@@ -51,7 +51,7 @@ import {
   createUnprovenDeployTx,
   submitTx,
 } from '@midnight-ntwrk/midnight-js-contracts';
-import { getNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
+import { LedgerTransaction } from '@midnight-ntwrk/midnight-js-types';
 
 import type { Arm } from './signer.js';
 
@@ -305,9 +305,10 @@ async function withDustRetry<T>(label: string, fn: () => Promise<T>): Promise<T>
  * and the two bridge by serialisation.
  */
 async function onChainAuthorityCounter(providers: any, address: string): Promise<bigint> {
-  const state: any = await providers.publicDataProvider.queryContractState(address);
-  if (!state) throw new Error(`no contract state found at ${address}`);
-  const ledgerState: ContractState = ContractState.deserialize(state.serialize());
+  // midnight-js 5.0.0 answers a record whose `contractState` is the serialized state by era
+  const read: any = await providers.publicDataProvider.queryContractState(address);
+  if (!read) throw new Error(`no contract state found at ${address}`);
+  const ledgerState: ContractState = ContractState.deserialize(read.contractState.serialize());
   return ledgerState.maintenanceAuthority.counter as bigint;
 }
 
@@ -432,8 +433,11 @@ export async function deployAccountInWaves(
   const deploy = new ContractDeploy(wave1);
   const address = String(deploy.address);
   const ttl = new Date(Date.now() + Number(process.env.TX_TTL_MS ?? '60000'));
+  // The network id is the providers' (midnight-js 5.0.0 `config.networkId`; the global of the retired
+  // network-id package is no longer read), and a hand-built ledger transaction is handed to submitTx
+  // sealed in its era and stage.
   const unprovenTx = Transaction.fromParts(
-    getNetworkId(), undefined, undefined, Intent.new(ttl).addDeploy(deploy),
+    providers.config.networkId, undefined, undefined, Intent.new(ttl).addDeploy(deploy),
   );
 
   console.log(
@@ -441,19 +445,19 @@ export async function deployAccountInWaves(
     `(${options.firstArm}-first roster, ${waveOne.verifierBytes} verifier bytes)`,
   );
   const finalized: any = await withDustRetry('wave-1 deploy', () =>
-    (submitTx as any)(providers, { unprovenTx }));
+    (submitTx as any)(providers, { unprovenTx: LedgerTransaction.seal('v9', 'Unproven', unprovenTx) }));
   if (finalized.status && String(finalized.status).toLowerCase().includes('fail')) {
     throw new Error(`wave-1 deploy failed: ${JSON.stringify(finalized.status)}`);
   }
 
   // The bookkeeping midnight-js's own deploy performs: the maintenance
   // authority key (the later waves and future maintenance read it from here)
-  // and the private state.
-  if (typeof providers.privateStateProvider.setContractAddress === 'function') {
-    await providers.privateStateProvider.setContractAddress(address);
-  }
+  // and the private state, under the contract's address (midnight-js 5.0.0
+  // scopes private states by contract through `forContract`).
   await providers.privateStateProvider.setSigningKey(address, deployData.private.signingKey);
-  await providers.privateStateProvider.set(options.privateStateId, deployData.private.initialPrivateState);
+  await providers.privateStateProvider
+    .forContract(address)
+    .set(options.privateStateId, deployData.private.initialPrivateState);
 
   // The maintenance waves: each carries its batch of verifier keys in ONE
   // hand-built maintenance update, signed with the stored authority key.
@@ -497,10 +501,10 @@ export async function deployAccountInWaves(
     const signedUpdate = bare.addSignature(0n, signData(signingKey, bare.dataToSign));
     const waveTtl = new Date(Date.now() + Number(process.env.TX_TTL_MS ?? '60000'));
     const waveTx = Transaction.fromParts(
-      getNetworkId(), undefined, undefined, Intent.new(waveTtl).addMaintenanceUpdate(signedUpdate),
+      providers.config.networkId, undefined, undefined, Intent.new(waveTtl).addMaintenanceUpdate(signedUpdate),
     );
     const waveFinal: any = await withDustRetry(`wave-${wave.index} maintenance`, () =>
-      (submitTx as any)(providers, { unprovenTx: waveTx }));
+      (submitTx as any)(providers, { unprovenTx: LedgerTransaction.seal('v9', 'Unproven', waveTx) }));
     if (waveFinal.status && String(waveFinal.status).toLowerCase().includes('fail')) {
       throw new Error(`wave-${wave.index} maintenance failed: ${JSON.stringify(waveFinal.status)}`);
     }

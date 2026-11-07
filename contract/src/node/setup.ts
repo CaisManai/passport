@@ -10,7 +10,7 @@ import { rawTokenType, encodeRawTokenType } from '@midnightntwrk/ledger-v9';
 
 import * as FaucetModule from '../../contracts/managed/faucet/contract/index.js';
 import * as ControlModule from '../../contracts/managed/control/contract/index.js';
-import { Contract } from '../wallet/contract.js';
+import { Contract, compactStateOf } from '../wallet/contract.js';
 import { makeWitnesses } from '../wallet/witnesses.js';
 import { CustodyAccount } from '../wallet/account.js';
 import type { AnyDevice } from '../wallet/signer.js';
@@ -115,9 +115,8 @@ export async function deployControl(walletCtx: WalletContext): Promise<ControlHa
     spendPublic: async (recipient, color, amount) =>
       idOf(await (deployed as any).callTx.spend_public({ bytes: recipient }, color, amount)),
     ledgerState: async () => {
-      const state = await providers.publicDataProvider.queryContractState(address);
-      if (!state) throw new Error(`no contract state at ${address}`);
-      return (ControlModule as any).ledger(state.data);
+      const read = await providers.publicDataProvider.queryContractState(address);
+      return (ControlModule as any).ledger(compactStateOf(read, address).data);
     },
   };
 }

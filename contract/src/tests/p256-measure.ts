@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const zkir = process.env.ZKIR_BIN ?? path.join(homedir(), '.compact/versions/0.35.0/aarch64-darwin/zkir-v3');
+const zkir = process.env.ZKIR_BIN ?? path.join(homedir(), '.compact/versions/0.36.0/aarch64-darwin/zkir-v3');
 const shaFile = async (file: string): Promise<string> => {
   const hash = createHash('sha256');
   for await (const chunk of createReadStream(file)) hash.update(chunk);

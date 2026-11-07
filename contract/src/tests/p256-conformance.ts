@@ -10,7 +10,7 @@ import { CompiledContract } from '@midnight-ntwrk/compact-js';
 import { deployContract } from '@midnight-ntwrk/midnight-js-contracts';
 import { nodeZkConfigRegistry } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
 import { httpClientProvingProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
-import { createProofProviderFromHandlers } from '@midnight-ntwrk/midnight-js-types';
+import { createLedger9ProofProvider } from '@midnight-ntwrk/midnight-js-types';
 import { CostModel } from '@midnightntwrk/ledger-v9';
 import * as Probe from '../../contracts/managed/probe-p256/contract/index.js';
 import { CustodyAccount } from '../wallet/account.js';
@@ -52,7 +52,7 @@ await runScenario('P-256/WebAuthn on-node', async () => {
     samples.push(sample); log('proof', sample); console.log('  proving', JSON.stringify(sample));
     return proof;
   } };
-  const proofProvider = createProofProviderFromHandlers({ currentEra: tx => tx.prove(timed, CostModel.initialCostModel()) });
+  const proofProvider = createLedger9ProofProvider(timed, CostModel.initialCostModel());
   const ctx = await setupWallet();
   ctx.providers.proofProvider = proofProvider;
   const record = async (name: string, result: { txId: string }) => {

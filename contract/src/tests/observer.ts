@@ -50,12 +50,11 @@ export async function fetchTxArtefacts(
 
 /** The contract's public state as one observer-visible hex string. */
 export async function fetchContractStateHex(providers: any, address: string): Promise<string> {
-  const state = await providers.publicDataProvider.queryContractState(address);
-  if (!state) return '';
-  const data: any = state.data;
-  if (data instanceof Uint8Array) return Buffer.from(data).toString('hex');
-  if (typeof data?.serialize === 'function') return Buffer.from(data.serialize()).toString('hex');
-  return Buffer.from(JSON.stringify(data)).toString('hex');
+  // midnight-js 5.0.0 answers a record whose `contractState` is the whole serialized state by era; its
+  // bytes are exactly what an observer of the chain sees, so they are what the needles are scanned in
+  const read = await providers.publicDataProvider.queryContractState(address);
+  if (!read) return '';
+  return Buffer.from(read.contractState.serialize()).toString('hex');
 }
 
 export interface Needles {

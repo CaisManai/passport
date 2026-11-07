@@ -70,13 +70,13 @@ import {
   ChargedState,
 } from '@midnight-ntwrk/compact-runtime';
 import { ContractState, Transaction } from '@midnightntwrk/ledger-v9';
+import { SerializedContractState } from '@midnight-ntwrk/midnight-js-types';
 import {
   createUnprovenCallTx,
   createUnprovenCallTxFromInitialStates,
   submitTx,
 } from '@midnight-ntwrk/midnight-js-contracts';
 import { parseCoinPublicKeyToHex } from '@midnight-ntwrk/midnight-js-utils';
-import { getNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import { rawTokenType, encodeRawTokenType } from '@midnightntwrk/ledger-v9';
 
 import { runScenario, step, waitForLedger, sleep } from './runner.js';
@@ -603,19 +603,22 @@ async function rawSubmit(
  *  "would this witness satisfy the circuit?" without spending anything. */
 async function proveOnly(providers: any, unprovenTx: any): Promise<void> {
   setPhase('prove');
-  await providers.proofProvider.proveTx({ version: 'v9', tx: unprovenTx });
+  // midnight-js 5.0.0: the unproven transaction a call builds is already an era-tagged handle
+  await providers.proofProvider.proveTx(unprovenTx);
 }
 
+// midnight-js 5.0.0: the three states come back as one record of era-tagged serialized states, which is
+// also the form createUnprovenCallTxFromInitialStates takes them in.
 interface ChainStates {
-  contractState: any;
+  contractState: SerializedContractState;
   zswap: any;
   ledgerParameters: any;
 }
 
 async function readStates(providers: any, address: string): Promise<ChainStates> {
-  const [zswap, contractState, ledgerParameters] =
-    await providers.publicDataProvider.queryZSwapAndContractState(address);
-  return { contractState, zswap, ledgerParameters };
+  const read = await providers.publicDataProvider.queryZSwapAndContractState(address);
+  if (!read) throw new Error(`no public states found at ${address}`);
+  return { contractState: read.contractState, zswap: read.zswapChainState, ledgerParameters: read.ledgerParameters };
 }
 
 /**
@@ -625,10 +628,10 @@ async function readStates(providers: any, address: string): Promise<ChainStates>
  * (the same `auth_nonce`, the same grant `nonce`) and the node refuses the
  * pair on a transcript read mismatch.
  */
-function successorState(contractState: any, nextStateValue: any): any {
-  const cloned = (contractState.constructor as any).deserialize(contractState.serialize());
+function successorState(contractState: SerializedContractState, nextStateValue: any): SerializedContractState {
+  const cloned = ContractState.deserialize(contractState.serialize());
   cloned.data = new ChargedState(nextStateValue);
-  return cloned;
+  return SerializedContractState.fromBytes('v9', cloned.serialize());
 }
 
 // ── Transaction transcripts through the indexer (S12) ──────────────────────
@@ -2099,7 +2102,7 @@ await runScenario('grants-conformance (scoped grants E2)', async () => {
   const refills: Held[] = [];
 
   const coinPublicKeyHex = parseCoinPublicKeyToHex(
-    ctx.providers.walletProvider.getCoinPublicKey(), getNetworkId());
+    ctx.providers.walletProvider.getCoinPublicKey(), ctx.providers.config.networkId);
   const walletEncPk = ctx.providers.walletProvider.getEncryptionPublicKey();
 
   interface CallSpec { circuitId: string; args: unknown[] }
@@ -2107,7 +2110,8 @@ await runScenario('grants-conformance (scoped grants E2)', async () => {
   /** Build one call against an explicit contract state (no chain read). */
   async function buildOn(states: ChainStates, spec: CallSpec): Promise<any> {
     await pointAtA();
-    const privateState = await ctx.providers.privateStateProvider.get(account.privateStateId);
+    const privateState = await ctx.providers.privateStateProvider
+      .forContract(account.address).get(account.privateStateId);
     setPhase('build');
     return (createUnprovenCallTxFromInitialStates as any)(
       ctx.providers.zkConfigProvider,
@@ -2121,6 +2125,7 @@ await runScenario('grants-conformance (scoped grants E2)', async () => {
         initialZswapChainState: states.zswap,
         ledgerParameters: states.ledgerParameters,
         initialPrivateState: privateState,
+        config: ctx.providers.config,
       },
       walletEncPk,
     );

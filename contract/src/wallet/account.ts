@@ -22,6 +22,7 @@ import { findDeployedContract } from '@midnight-ntwrk/midnight-js-contracts';
 import { deployAccountInWaves } from './wave-deploy.js';
 
 import {
+  compactStateOf,
   ledger,
   type JubjubPoint,
   type Ledger,
@@ -279,9 +280,8 @@ export class CustodyAccount {
   // ── Ledger reads ──────────────────────────────────────────────────────────
 
   async ledgerState(): Promise<Ledger> {
-    const state = await this.providers.publicDataProvider.queryContractState(this.address);
-    if (!state) throw new Error(`no contract state found at ${this.address}`);
-    return ledger(state.data);
+    const read = await this.providers.publicDataProvider.queryContractState(this.address);
+    return ledger(compactStateOf(read, this.address).data);
   }
 
   /** The signing context for the next authorised call (MIP-0013 §5.1). */
@@ -327,19 +327,25 @@ export class CustodyAccount {
 
   // ── Wallet-local coin store (MIP-0012 §6.5) ───────────────────────────────
 
+  // midnight-js 5.0.0 keeps every contract's private states under its address
+  // (`forContract`), where findDeployedContract stored this account's.
+  private get coinStates() {
+    return this.providers.privateStateProvider.forContract(this.address);
+  }
+
   async coinStore(): Promise<CoinStorePrivateState> {
-    const s = await this.providers.privateStateProvider.get(this.privateStateId);
+    const s = await this.coinStates.get(this.privateStateId);
     return (s as CoinStorePrivateState) ?? emptyCoinStore();
   }
 
   async putCoin(coin: { nonce: Uint8Array; color: Uint8Array; value: bigint; mtIndex: bigint }): Promise<void> {
     const s = await this.coinStore();
-    await this.providers.privateStateProvider.set(this.privateStateId, withCoin(s, coin));
+    await this.coinStates.set(this.privateStateId, withCoin(s, coin));
   }
 
   async dropCoin(color: Uint8Array): Promise<void> {
     const s = await this.coinStore();
-    await this.providers.privateStateProvider.set(this.privateStateId, withoutCoin(s, color));
+    await this.coinStates.set(this.privateStateId, withoutCoin(s, color));
   }
 
   /** The stored qualified coin for a color — the witness value the spend

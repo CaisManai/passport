@@ -64,7 +64,7 @@ import {
   type SingleUpdate,
 } from '@midnightntwrk/ledger-v9';
 import { createUnprovenDeployTx, submitTx } from '@midnight-ntwrk/midnight-js-contracts';
-import { getNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
+import { LedgerTransaction } from '@midnight-ntwrk/midnight-js-types';
 
 import {
   VERIFIER_BYTE_BUDGET,
@@ -247,9 +247,11 @@ async function deployWaveOneOnly(
   const address = String(deploy.address);
   const ttl = new Date(Date.now() + Number(process.env.TX_TTL_MS ?? '60000'));
   const unprovenTx = Transaction.fromParts(
-    getNetworkId(), undefined, undefined, Intent.new(ttl).addDeploy(deploy),
+    providers.config.networkId, undefined, undefined, Intent.new(ttl).addDeploy(deploy),
   );
-  const finalized: any = await (submitTx as any)(providers, { unprovenTx });
+  const finalized: any = await (submitTx as any)(providers, {
+    unprovenTx: LedgerTransaction.seal('v9', 'Unproven', unprovenTx),
+  });
   if (finalized.status && String(finalized.status).toLowerCase().includes('fail')) {
     throw new Error(`wave-1 deploy failed: ${JSON.stringify(finalized.status)}`);
   }
@@ -258,9 +260,9 @@ async function deployWaveOneOnly(
 
 /** The maintenance authority counter as it stands on chain. */
 async function onChainAuthorityCounter(providers: any, address: string): Promise<bigint> {
-  const state: any = await providers.publicDataProvider.queryContractState(address);
-  if (!state) throw new Error(`no contract state found at ${address}`);
-  const ledgerState: ContractState = ContractState.deserialize(state.serialize());
+  const read: any = await providers.publicDataProvider.queryContractState(address);
+  if (!read) throw new Error(`no contract state found at ${address}`);
+  const ledgerState: ContractState = ContractState.deserialize(read.contractState.serialize());
   return ledgerState.maintenanceAuthority.counter as bigint;
 }
 
@@ -410,7 +412,7 @@ await runScenario('probe: the per-maintenance-update verifier-byte ceiling', asy
     const signed = bare.addSignature(0n, signData(account!.signingKey as any, bare.dataToSign));
     const ttl = new Date(Date.now() + Number(process.env.TX_TTL_MS ?? '60000'));
     const unprovenTx = Transaction.fromParts(
-      getNetworkId(), undefined, undefined, Intent.new(ttl).addMaintenanceUpdate(signed),
+      providers.config.networkId, undefined, undefined, Intent.new(ttl).addMaintenanceUpdate(signed),
     );
 
     // Price it against the chain's own parameters before anything is sent.
@@ -445,7 +447,7 @@ await runScenario('probe: the per-maintenance-update verifier-byte ceiling', asy
     let timer: NodeJS.Timeout | undefined;
     try {
       const finalized: any = await Promise.race([
-        (submitTx as any)(providers, { unprovenTx }),
+        (submitTx as any)(providers, { unprovenTx: LedgerTransaction.seal('v9', 'Unproven', unprovenTx) }),
         new Promise((_res, rej) => {
           timer = setTimeout(
             () => rej(new Error(`not included within ${SUBMIT_WAIT_MS / 1000}s`)),

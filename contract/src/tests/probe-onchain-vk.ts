@@ -10,6 +10,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { ContractState } from '@midnightntwrk/ledger-v9';
 import { setupWallet, deployAccount } from '../node/setup.js';
 import { zkConfigPath } from '../node/wallet.js';
 import { K256Device } from '../wallet/signer.js';
@@ -24,8 +25,10 @@ async function main() {
   const account = await deployAccount(ctx, K256Device.generate(), generateEncKeyPair());
   console.log(`account @ ${account.address}`);
 
-  const state = await ctx.providers.publicDataProvider.queryContractState(account.address);
-  if (!state) throw new Error('contract state not found on the indexer');
+  const read = await ctx.providers.publicDataProvider.queryContractState(account.address);
+  if (!read) throw new Error('contract state not found on the indexer');
+  // midnight-js 5.0.0 answers the serialized state by era; the ledger class reads the operations
+  const state = ContractState.deserialize(read.contractState.serialize());
 
   const keysDir = path.join(zkConfigPath, 'keys');
   const names = fs

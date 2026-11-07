@@ -9,7 +9,7 @@ import {
   VerifierKeyInsert, sampleSigningKey, signData,
 } from '@midnightntwrk/ledger-v9';
 import { compiledAccountContract, compiledControlContract, compiledFaucetContract } from '../node/setup.js';
-import { zkConfigPath, controlZkConfigPath, faucetZkConfigPath } from '../node/wallet.js';
+import { midnightConfig, zkConfigPath, controlZkConfigPath, faucetZkConfigPath } from '../node/wallet.js';
 import { JubjubDevice } from '../wallet/signer.js';
 import { emptyCoinStore } from '../wallet/witnesses.js';
 import { allCircuits, planWaves, VERIFIER_BYTE_BUDGET } from '../wallet/wave-deploy.js';
@@ -23,24 +23,26 @@ void runScenario('toolchain-offline', async () => {
   const signingKey = sampleSigningKey();
 
   step('SDK constructs account and scaffolding deployments from checked artifacts');
-  assert.equal(await accountProvider.getArtifactRuntimeVersion(), '0.20.0');
+  // compact 0.36.0 generates against compact-runtime 0.21.0; midnight-js 5.0.0 takes the network id and
+  // intent TTL as a config argument (the retired network-id global is no longer read) and tags eras 'v9'
+  assert.equal(await accountProvider.getArtifactRuntimeVersion(), '0.21.0');
   const account = await createUnprovenDeployTxFromVerifierKeys(accountProvider, coinPublicKey, {
     compiledContract: compiledAccountContract(),
     initialPrivateState: emptyCoinStore(),
     signingKey,
     args: [zero32, zero32, JubjubDevice.generate().pk, new Uint8Array(64), 60n],
-  }, encryptionPublicKey);
+  }, encryptionPublicKey, midnightConfig());
   const state = ContractState.deserialize(account.public.initialContractState.serialize());
-  assert.equal(account.era, 'ledger9');
+  assert.equal(account.era, 'v9');
   assert.ok(account.private.unprovenTx.serialize().length > 0);
   const control = await createUnprovenDeployTxFromVerifierKeys(
     new NodeZkConfigProvider(controlZkConfigPath), coinPublicKey,
-    { compiledContract: compiledControlContract(), signingKey, initialPrivateState: {} }, encryptionPublicKey);
+    { compiledContract: compiledControlContract(), signingKey, initialPrivateState: {} }, encryptionPublicKey, midnightConfig());
   const faucet = await createUnprovenDeployTxFromVerifierKeys(
     new NodeZkConfigProvider(faucetZkConfigPath), coinPublicKey,
-    { compiledContract: compiledFaucetContract(), signingKey, initialPrivateState: {} }, encryptionPublicKey);
+    { compiledContract: compiledFaucetContract(), signingKey, initialPrivateState: {} }, encryptionPublicKey, midnightConfig());
   for (const deployment of [control, faucet]) {
-    assert.equal(deployment.era, 'ledger9');
+    assert.equal(deployment.era, 'v9');
     assert.ok(deployment.private.unprovenTx.serialize().length > 0);
   }
 

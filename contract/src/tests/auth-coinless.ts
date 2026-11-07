@@ -43,7 +43,7 @@ import {
   signData,
 } from '@midnightntwrk/ledger-v9';
 import { submitTx } from '@midnight-ntwrk/midnight-js-contracts';
-import { getNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
+import { LedgerTransaction } from '@midnight-ntwrk/midnight-js-types';
 import { CONFIG } from '../node/wallet.js';
 
 import { runScenario, step, waitForLedger } from './runner.js';
@@ -308,9 +308,10 @@ await runScenario('auth-coinless (both arms)', async () => {
       );
       const signed = bare.addSignature(0n, signData(signingKey, bare.dataToSign));
       const ttl = new Date(Date.now() + Number(process.env.TX_TTL_MS ?? '60000'));
-      return Transaction.fromParts(
-        getNetworkId(), undefined, undefined, Intent.new(ttl).addMaintenanceUpdate(signed),
-      );
+      // the providers' network id (midnight-js 5.0.0 config), sealed as a v9 unproven transaction for submitTx
+      return LedgerTransaction.seal('v9', 'Unproven', Transaction.fromParts(
+        account.providers.config.networkId, undefined, undefined, Intent.new(ttl).addMaintenanceUpdate(signed),
+      ));
     };
 
     console.log('  positive control: an account whose authority was NOT retired');

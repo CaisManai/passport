@@ -1,8 +1,15 @@
 // Node-side provider and wallet plumbing — adapted from
 // experiments/contract-custody-feasibility/src/{utils,common}.ts and ported
-// to the ledger-9 stack (midnight-js 5.0.0-rc.2, wallet-sdk facade
-// 5.0.0-rc.0, ledger-v9 1.0.0-rc.5) following the upstream
-// compact-end-2-end harness's utils/{wallet,providers}.ts.
+// to the ledger-9 stack (midnight-js 5.0.0, wallet-sdk facade 5.0.0,
+// ledger-v9 1.0.0) following the upstream compact-end-2-end harness's
+// utils/{wallet,providers}.ts.
+//
+// midnight-js 5.0.0 (the final line, 2026-11): the network id is no longer a
+// process-wide global (the midnight-js-network-id package is deprecated and
+// never left its release candidates); every provider set carries it in
+// `config` together with the intent TTL, and the ledger-era-tagged factories
+// (`createLedger9WalletProvider`, `createLedger9MidnightProvider`) replace the
+// era-less ones of the release candidates.
 //
 // The funding wallet (genesis-seeded on the local devnet) pays Dust fees and
 // supplies Night for deposits. Fee handling is explicitly out of scope for
@@ -23,8 +30,12 @@ import {
   NodeZkConfigProvider,
   nodeZkConfigRegistry,
 } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
-import { setNetworkId, getNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
-import { createWalletProvider, createMidnightProvider } from '@midnight-ntwrk/midnight-js-types';
+import {
+  createLedger9MidnightProvider,
+  createLedger9WalletProvider,
+  type MidnightConfig,
+} from '@midnight-ntwrk/midnight-js-types';
+import { createMidnightProviders } from '@midnight-ntwrk/midnight-js-utils';
 import * as ledger from '@midnightntwrk/ledger-v9';
 import { NoOpTransactionHistoryStorage } from '@midnightntwrk/wallet-sdk-abstractions';
 import { WalletFacade } from '@midnightntwrk/wallet-sdk-facade';
@@ -68,7 +79,16 @@ const CONFIGS: Record<
 };
 
 export const CONFIG = CONFIGS[NETWORK] ?? CONFIGS.local;
-setNetworkId(CONFIG.networkId as any);
+
+/** The intent TTL every transaction here is built with (TX_TTL_MS, default 60 s): node 2.1.0 enforces a
+ *  fee-model dismissal window far below the 30-minute TTL older stacks accepted. */
+export const TX_TTL_MS = Number(process.env.TX_TTL_MS ?? '60000');
+
+/** The midnight-js 5.0.0 provider config: the network id and the intent TTL in seconds. Read at call time,
+ *  because a host may point this module at another network by assigning CONFIG after loading it. */
+export function midnightConfig(): MidnightConfig {
+  return { networkId: CONFIG.networkId, ttlSeconds: TX_TTL_MS / 1000 };
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const managedPath = path.resolve(__dirname, '..', '..', 'contracts', 'managed');
@@ -93,7 +113,7 @@ export function deriveKeys(seed: string) {
 
 export async function createWallet(seed: string) {
   const keys = deriveKeys(seed);
-  const networkId = getNetworkId();
+  const networkId = CONFIG.networkId;
 
   const shieldedSecretKeys = ledger.ZswapSecretKeys.fromSeed(keys[Roles.Zswap]);
   const dustSecretKey = ledger.DustSecretKey.fromSeed(keys[Roles.Dust]);
@@ -215,9 +235,11 @@ export async function createProviders<K extends string = string>(walletCtx: Wall
   // signers need it); wrap so the keystore's `this` binding is preserved.
   const signFn = (payload: Uint8Array) => walletCtx.unshieldedKeystore.signDataAsync(payload);
 
-  // Midnight JS tags provider transactions by ledger era. The adapters reject
-  // unsupported eras before handing a v9 transaction to this localnet wallet.
-  const walletProvider = createWalletProvider({
+  // Midnight JS tags provider transactions by ledger era; the ledger-9 factories
+  // hand this localnet wallet v9 transactions only and refuse any other era.
+  // The handlers take and answer era-tagged `LedgerTransaction` handles, so
+  // the bytes cross the boundary and the ledger class never has to.
+  const walletProvider = createLedger9WalletProvider({
     getCoinPublicKey: () => state.shielded.coinPublicKey.toHexString(),
     getEncryptionPublicKey: () => state.shielded.encryptionPublicKey.toHexString(),
     async balanceTx(tx, ttl) {
@@ -225,7 +247,7 @@ export async function createProviders<K extends string = string>(walletCtx: Wall
       // 30-minute TTL older stacks accepted (Malformed(FeeCalculation(
       // OutsideTimeToDismiss))); a short TTL keeps the fee calculation
       // inside the window. Balancing-to-submission is sub-second here.
-      const transactionTtl = ttl ?? new Date(Date.now() + Number(process.env.TX_TTL_MS ?? '60000'));
+      const transactionTtl = ttl ?? new Date(Date.now() + TX_TTL_MS);
       const handle = walletCtx.wallet.adoptTransaction(tx.serialize(), 'Unbound');
       await waitForDustFeeBudget(walletCtx, handle, transactionTtl);
       const recipe = await walletCtx.wallet.balanceUnboundTransaction(
@@ -235,10 +257,10 @@ export async function createProviders<K extends string = string>(walletCtx: Wall
 
       const signed = await walletCtx.wallet.signRecipe(recipe, signFn);
       const finalized = await walletCtx.wallet.finalizeRecipe(signed);
-      return ledger.Transaction.deserialize('signature', 'proof', 'binding', finalized.serialize());
+      return finalized.serialize();
     },
   });
-  const midnightProvider = createMidnightProvider((tx) =>
+  const midnightProvider = createLedger9MidnightProvider((tx) =>
     walletCtx.wallet.submitTransaction(walletCtx.wallet.adoptTransaction(tx.serialize(), 'Finalized')));
 
   // midnight-js deploy/make reads this contract's own verifier keys by circuit
@@ -248,14 +270,15 @@ export async function createProviders<K extends string = string>(walletCtx: Wall
   const zkConfigProvider = new NodeZkConfigProvider<K>(contractZkPath);
   const zkConfigRegistry = await nodeZkConfigRegistry(managedPath);
 
-  const pdp = indexerPublicDataProvider(CONFIG.indexer, CONFIG.indexerWS);
+  const pdp = indexerPublicDataProvider({ queryURL: CONFIG.indexer, subscriptionURL: CONFIG.indexerWS });
   (pdp as any).watchForTxData = retryOnDrop('watchForTxData', (pdp as any).watchForTxData.bind(pdp));
   (pdp as any).watchForDeployTxData = retryOnDrop(
     'watchForDeployTxData',
     (pdp as any).watchForDeployTxData.bind(pdp),
   );
 
-  return {
+  // createMidnightProviders checks the set is complete and the config valid before anything is built on it
+  return createMidnightProviders({
     privateStateProvider: levelPrivateStateProvider({
       midnightDbName: `midnight-level-db`,
       privateStateStoreName: 'account-custody-reference',
@@ -264,10 +287,11 @@ export async function createProviders<K extends string = string>(walletCtx: Wall
     }),
     publicDataProvider: pdp,
     zkConfigProvider,
-    proofProvider: httpClientProofProvider(CONFIG.proofServer, zkConfigRegistry),
+    proofProvider: httpClientProofProvider({ url: CONFIG.proofServer, zkConfigProvider: zkConfigRegistry }),
     walletProvider,
     midnightProvider,
-  };
+    config: midnightConfig(),
+  });
 }
 
 // The user's 32-byte unshielded address bytes, as the contract's

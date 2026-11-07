@@ -1,11 +1,29 @@
 // Re-export of the compiled contract modules. Keeping the generated-module
 // imports in one place means every test shares a single import path.
 
+import type { ContractState } from '@midnight-ntwrk/compact-runtime';
+import type { ContractStateRead } from '@midnight-ntwrk/midnight-js-types';
+import { deserializeLedger9CompactContractState } from '@midnight-ntwrk/midnight-js-utils';
+
 import * as AccountModule from '../../contracts/managed/account/contract/index.js';
 import type { Ledger } from '../../contracts/managed/account/contract/index.js';
 
 export const { Contract, ledger, pureCircuits } = AccountModule;
 export type { Ledger };
+
+/**
+ * The compact-runtime `ContractState` behind a public-data read. midnight-js 5.0.0's `queryContractState`
+ * answers a record whose `contractState` is the serialized state tagged by ledger era (a
+ * `SerializedContractState`), not the runtime class the generated `ledger()` reader takes; this is the
+ * one conversion every ledger read in this package goes through.
+ */
+export function compactStateOf(read: ContractStateRead | null | undefined, address: string): ContractState {
+  if (!read) throw new Error(`no contract state found at ${address}`);
+  return deserializeLedger9CompactContractState(read.contractState.serialize(), {
+    caller: 'midnight-account-custody:compactStateOf',
+    details: { address },
+  });
+}
 export type { Witnesses, PureCircuits } from '../../contracts/managed/account/contract/index.js';
 
 /** JubJub point as the generated code represents it: affine coordinates. */
